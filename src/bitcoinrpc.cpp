@@ -252,6 +252,7 @@ static const CRPCCommand vRPCCommands[] =
     { "dhtputraw",              &dhtputraw,              false,     true,       true },
     { "dhtget",                 &dhtget,                 false,     true,       true },
     { "newpostmsg",             &newpostmsg,             false,     true,       false },
+    { "newpostcustom",          &newpostcustom,          false,     true,       false },
     { "newpostraw",             &newpostraw,             false,     true,       true },
     { "newdirectmsg",           &newdirectmsg,           false,     true,       false },
     { "newrtmsg",               &newrtmsg,               false,     true,       false },
@@ -287,6 +288,8 @@ static const CRPCCommand vRPCCommands[] =
     { "peekpost",               &peekpost,               false,     true,       true },
     { "usernametouid",          &usernametouid,          false,     true,       true },
     { "uidtousername",          &uidtousername,          false,     true,       true },
+    { "newshorturl",            &newshorturl,            false,     true,       false },
+    { "decodeshorturl",         &decodeshorturl,         false,     true,       true },
 };
 
 CRPCTable::CRPCTable()
@@ -1330,6 +1333,8 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "dhtget"                 && n > 5) ConvertTo<boost::int64_t>(params[5]);
     if (strMethod == "newpostmsg"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "newpostmsg"             && n > 4) ConvertTo<boost::int64_t>(params[4]);
+    if (strMethod == "newpostcustom"          && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "newpostcustom"          && n > 2) ConvertTo<Object>(params[2]);
     if (strMethod == "newpostraw"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "newdirectmsg"           && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "newdirectmsg"           && n > 4) ConvertTo<bool>(params[4]);
@@ -1369,6 +1374,8 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "peekpost"               && n > 3) ConvertTo<boost::int64_t>(params[3]);
     if (strMethod == "uidtousername"          && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "usernametouid"          && n > 1) ConvertTo<bool>(params[1]);;
+    if (strMethod == "newshorturl"            && n > 1) ConvertTo<boost::int64_t>(params[1]);;
+    if (strMethod == "decodeshorturl"         && n > 1) ConvertTo<boost::int64_t>(params[1]);;
 
     return params;
 }

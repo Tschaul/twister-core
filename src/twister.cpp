@@ -1660,8 +1660,30 @@ bool createSignedUserpost(entry &v, std::string const &username, int k,
     userpost["time"] = GetAdjustedTime();
     userpost["height"] = getBestHeight() - 1; // be conservative
 
-    if( msg.size() ) {
+    int msgUtf8Chars = utf8::num_characters(msg.begin(), msg.end());
+    if(msgUtf8Chars < 0) {
+        return false; // invalid utf8
+    } else if (msgUtf8Chars && msgUtf8Chars <= 140) {
         userpost["msg"] = msg;
+    } else {
+        // break into msg and msg2 fields to overcome 140ch checks
+        string::const_iterator it = msg.begin();
+        string::const_iterator end = msg.end();
+        string msgOut, msg2Out;
+        int count = 0;
+        while (it!= end) {
+            string::const_iterator itPrev = it;
+            utf8::internal::utf_error err_code = utf8::internal::validate_next(it, end);
+            assert(err_code == utf8::internal::UTF8_OK); // string must have been validated already
+            count++;
+            if( count <= 140 ) {
+                msgOut.append(itPrev,it);
+            } else {
+                msg2Out.append(itPrev,it);
+            }
+        }
+        userpost["msg"] = msgOut;
+        userpost["msg2"] = msg2Out;
     }
 
     switch(flag)
@@ -1697,10 +1719,7 @@ bool createSignedUserpost(entry &v, std::string const &username, int k,
         userpost["pfav"] = *ent;
         break;
     default:
-        if ( !msg.size() ) {
-            printf("createSignedUserpost: unknown type\n");
-            return false;
-        }
+        break;
     }
 
     if( reply_n.size() ) {
@@ -2256,6 +2275,72 @@ Value newpostmsg(const Array& params, bool fHelp)
 
     //look for mentions and hashtags in msg
     dispatchHM(strMsg, strUsername, v);
+
+    hexcapePost(v);
+    return entryToJson(v);
+}
+
+Value newpostcustom(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 3)
+        throw runtime_error(
+            "newpostcustom <username> <k> '{\"field1\":value,\"field2\":value,...}'\n"
+            "Create a post with custom fields and add it to swarm");
+
+    EnsureWalletIsUnlocked();
+
+    string strUsername = params[0].get_str();
+    int k              = params[1].get_int();
+    string strK        = boost::lexical_cast<std::string>(k);
+    Object fields      = params[2].get_obj();
+
+    entry v;
+    entry &userpost = v["userpost"];
+    // [MF] Warning: findLastPublicPostLocalUser requires that we follow ourselves
+    int lastk = findLastPublicPostLocalUser(strUsername);
+    if( lastk >= 0 )
+        userpost["lastk"] = lastk;
+
+    for (Object::const_iterator i = fields.begin(); i != fields.end(); ++i) {
+        if( i->value_.type() == str_type ) {
+            userpost[i->name_] = i->value_.get_str();
+        } else if ( i->value_.type() == int_type ) {
+            userpost[i->name_] = i->value_.get_int();
+        } else {
+            JSONRPCError(RPC_INVALID_PARAMS,string("unknown type for parameter: ") + i->name_);
+        }
+    }
+
+    if( !createSignedUserpost(v, strUsername, k, 0,
+                              "", NULL, NULL) )
+        throw JSONRPCError(RPC_INTERNAL_ERROR,"error signing post with private key of user");
+
+    vector<char> buf;
+    bencode(std::back_inserter(buf), v);
+
+    std::string errmsg;
+    if( !acceptSignedPost(buf.data(),buf.size(),strUsername,k,errmsg,NULL) )
+        throw JSONRPCError(RPC_INVALID_PARAMS,errmsg);
+
+    torrent_handle h = startTorrentUser(strUsername, true);
+    if( h.is_valid() ) {
+        // if member of torrent post it directly
+        h.add_piece(k,buf.data(),buf.size());
+    } else {
+        // TODO: swarm resource forwarding not implemented
+        dhtPutData(strUsername, "swarm", false,
+                         v, strUsername, GetAdjustedTime(), 1);
+    }
+
+    // post to dht as well
+    dhtPutData(strUsername, string("post")+strK, false,
+                     v, strUsername, GetAdjustedTime(), 1);
+    if( userpost.find_key("msg") ) {
+        dhtPutData(strUsername, string("status"), false,
+                         v, strUsername, GetAdjustedTime(), k);
+        //look for mentions and hashtags in msg
+        dispatchHM(userpost["msg"].string(), strUsername, v);
+    }
 
     hexcapePost(v);
     return entryToJson(v);
@@ -4220,3 +4305,92 @@ Value usernametouid(const Array& params, bool fHelp)
 
     return Value(uid);
 }
+
+Value newshorturl(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 3)
+        throw runtime_error(
+            "newshorturl <username> <k> <url>\n"
+            "Shorten URL, create a post containing it add to swarm.\n"
+            "Returns the shortened twister URI (multiple options may be returned)");
+
+    EnsureWalletIsUnlocked();
+
+    string strUsername = params[0].get_str();
+    int k              = params[1].get_int();
+    string strUrl      = params[2].get_str();
+
+    Array paramsSub;
+    Value res;
+
+    paramsSub.clear();
+    paramsSub.push_back(strUsername);
+    paramsSub.push_back(k);
+    Object fields;
+    fields.push_back(Pair("url",strUrl));
+    paramsSub.push_back(fields);
+    res = newpostcustom(paramsSub,false);
+
+    paramsSub.clear();
+    paramsSub.push_back(strUsername);
+    res = usernametouid(paramsSub, false);
+
+    vector<unsigned char> vch;
+    vch.resize(8);
+    le32enc(&vch[0], res.get_int());
+    le32enc(&vch[4], k);
+    
+    string uid_k_64 = EncodeBase64(&vch[0], vch.size());
+    
+    Array uriOptions;
+    uriOptions.push_back(string("twist:")+uid_k_64);
+    
+    return uriOptions;
+}
+
+Value decodeshorturl(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2 )
+        throw runtime_error(
+            "decodeshorturl <twist:xxx> [timeout_sec=90]\n"
+            "Decodes a shortened URL by twister. May take some time to complete, like dhtget etc.\n"
+            "Returns the original URL or error if not found, timeout");
+
+    string strTwistURI = params[0].get_str();
+    int timeout = 0;
+    if( params.size() > 1 )
+        timeout = params[1].get_int();
+
+    string protocol("twist:");
+    if (strTwistURI.find(protocol) != 0) {
+        throw JSONRPCError(RPC_PARSE_ERROR, "protocol prefix error");
+    }
+    string uid_k_64 = strTwistURI.substr(protocol.size());
+    if (uid_k_64.length() < 12) {
+        throw JSONRPCError(RPC_PARSE_ERROR, "base64 string too small");
+    }
+    
+    string vch = DecodeBase64(uid_k_64);
+    int uid = le32dec(&vch[0]);
+    int k = le32dec(&vch[4]);
+
+    Array paramsSub;
+    Value res;
+
+    paramsSub.clear();
+    paramsSub.push_back(uid);
+    res = uidtousername(paramsSub, false);
+    
+    string strUsername = res.get_str();
+    
+    paramsSub.clear();
+    paramsSub.push_back(strUsername);
+    paramsSub.push_back(k);
+    paramsSub.push_back("url");
+    if(timeout) {
+        paramsSub.push_back(timeout);
+    }
+    return peekpost(paramsSub,false);
+}
+
+

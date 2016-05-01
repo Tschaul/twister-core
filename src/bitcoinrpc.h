@@ -204,6 +204,7 @@ extern json_spirit::Value dhtput(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value dhtputraw(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value dhtget(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value newpostmsg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value newpostcustom(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value newpostraw(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value newdirectmsg(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value newrtmsg(const json_spirit::Array& params, bool fHelp);
@@ -239,5 +240,7 @@ extern json_spirit::Value getpiecemaxseen(const json_spirit::Array& params, bool
 extern json_spirit::Value peekpost(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value uidtousername(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value usernametouid(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value newshorturl(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value decodeshorturl(const json_spirit::Array& params, bool fHelp);
 
 #endif
